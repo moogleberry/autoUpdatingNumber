@@ -14,18 +14,17 @@ Angular 1.x manager service for all things that have to automatically update wit
 
 # To register an updater you need
 1) updaterFunction (required):
-	The function that will be run for you in an $interval
-	This function must either return a promise, or the data you want to display
+* The function that will be run for you in an $interval.
+* This function must either return a promise, or the data you want to display.
 
 2) updaterName (optional): 
-	The unique key by which this updater will be known to the Service.
-	You can provide this yourself, or the Service will generate a random one for you.
-	You can call the updater later if you have this key.
+* The unique key by which this updater will be known to the Service.
+* You can provide this yourself, or the Service will generate a random one for you.
+* You can call the updater later if you have this key.
 
 3) updaterConfig (optional):
-	A configuration object for the updater. 
-	If you need to pass variabled into your updaterFunction, put them in the updaterConfig.functionParams array.
-	See the DEFAULTS object for details on each configuration option.
+* A configuration object for the updater. 
+* If you need to pass variabled into your updaterFunction, put them in the updaterConfig.functionParams array.
 
 # Example usage
 

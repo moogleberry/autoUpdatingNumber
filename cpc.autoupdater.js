@@ -25,6 +25,8 @@
 	Logs: 
 		This module uses $log.debug throughout.  If you want to see the logging output, set $logProvider.debugEnabled(true).
 		Most logging output will just give you a sense of what functions fire and when.
+
+	Version 1.0
 */
 
 angular.module('cpc.autoupdater', []).service('AutoUpdater', AutoUpdater);
