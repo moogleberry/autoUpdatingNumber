@@ -3,18 +3,18 @@ Angular 1.x manager service for all things that have to automatically update wit
 
 In Action: https://plnkr.co/edit/mip8cC?p=preview
 
-# Dependencies
+## Dependencies
 * Angular.js 1.x
 * Font-Awesome (used only in the base auto-updating-directive's template for a spinner)
 
-# Usage
+## Usage
 * Include cpc.autoupdater.js in your source files.
 * Inject cpc.autoupdater as a dependency.
 * Create a directive that uses the auto-updating-directive in its template.
 * Feed an updater function to your directive.
 * Use your directive.
 
-# To register an updater you need
+## To register an updater you need
 1) updaterFunction (required):
 * The function that will be run for you in an $interval.
 * This function must either return a promise, or the data you want to display.
@@ -28,10 +28,7 @@ In Action: https://plnkr.co/edit/mip8cC?p=preview
 * A configuration object for the updater. 
 * If you need to pass variabled into your updaterFunction, put them in the updaterConfig.functionParams array.
 
-# Example usage
-
-
-# Configuring an updater
+## Configuring an updater
 refreshTimer: 10000, // The time to wait between calls, in milliseconds.
 
 maxFailures: 2, // If the http call fails this many times, the updater stops trying.
@@ -52,7 +49,9 @@ listenForEvent: null, // The name of an event to listen for on the base directiv
 
 functionParams: [], // An array that will become the passedFunction's parameters.  Only supports numerically-indexed parameters like functionParams[1].  Trying functionParams["foo"] will not work.
 
-# Logging
+loadingClass: 'fa fa-spinner fa-spin', // The default loading spinner icon.
+
+## Logging
 This module uses $log.debug throughout.  If you want to see the logging output, set $logProvider.debugEnabled(true).
 
 Most logging output will just give you a sense of what functions fire and when.
