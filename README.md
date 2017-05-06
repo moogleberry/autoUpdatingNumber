@@ -1,6 +1,8 @@
 # Auto Updater
 Angular 1.x manager service for all things that have to automatically update with REST calls.
 
+In Action: https://plnkr.co/edit/mip8cC?p=preview
+
 # Dependencies
 * Angular.js 1.x
 * Font-Awesome (used only in the base auto-updating-directive's template for a spinner)
