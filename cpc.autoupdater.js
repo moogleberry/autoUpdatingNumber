@@ -3,7 +3,7 @@
 
 	Dependencies: 
 		1) Angular.js 1.x
-		2) Font-Awesome (used only in the base auto-updating-directive's template)
+		2) Font-Awesome (optional - used only as the default loading spinner)
 
 	Basic usage:
 		1) Register an updater
@@ -28,7 +28,6 @@
 
 	Version 1.0
 */
-
 angular.module('cpc.autoupdater', []).service('AutoUpdater', AutoUpdater);
 AutoUpdater.$inject = ['$interval', '$timeout', '$q', '$rootScope', '$log'];
 function AutoUpdater($interval, $timeout, $q, $rootScope, $log) {
@@ -36,6 +35,7 @@ function AutoUpdater($interval, $timeout, $q, $rootScope, $log) {
 
 	var DEFAULTS = {
 		refreshTimer: 10000, // The time to wait between calls, in milliseconds.
+		dynamicRefresh: true, // Dynamic refresh timers start when the call returns.  Static timers start when the call starts.
 		maxFailures: 2, // If the http call fails this many times, the updater stops trying.
 		maxFailuresMagicNumber: -1, // If you set maxFailures to this number, the updater will NEVER stop trying.
 		failureText: '?', // The text to display when an updater is in a failure state.
@@ -45,6 +45,7 @@ function AutoUpdater($interval, $timeout, $q, $rootScope, $log) {
 		broadcastEvent: null, // The name of an event to broadcast on $rootScope when an update is available.
 		listenForEvent: null, // The name of an event to listen for on the base directive and trigger an update.
 		functionParams: [], // An array that will become the passedFunction's parameters.  Only supports numerically-indexed parameters like functionParams[1].  Trying functionParams["foo"] will not work.
+		loadingClass: 'fa fa-spinner fa-spin', // The default loading spinner icon.
 	};
 
 	// All the updaters currently registered with the Service.
@@ -61,20 +62,21 @@ function AutoUpdater($interval, $timeout, $q, $rootScope, $log) {
 		$log.debug("AutoUpdater: registerUpdater: ", updaterFunction, updaterName, updaterConfig);
 
 		// Check for undefined updater name and fill with random value
-		if(!updaterName) {
+		if(updaterName === null || angular.isUndefined(updaterName)) {
 			updaterName = "updater" + Math.random().toString();
 		}
 
 		updaterConfig = _compileConfig(updaterConfig);
 
-		if(updaterFunction) {
+		if(updaterName && updaterFunction) {
 			registeredUpdaters[updaterName] = {
 				name: updaterName,
 				updater: updaterFunction,
 				config: updaterConfig,
 				failures: 0,
 				value: null,
-				title: "Loading"
+				title: "Loading",
+				running: false
 			};
 
 			// If told not to, do NOT start updater.
@@ -135,7 +137,7 @@ function AutoUpdater($interval, $timeout, $q, $rootScope, $log) {
 	*/
 	function _compileConfig(config) {
 		return angular.extend({}, DEFAULTS, config);
-	};
+	}
 
 	/*
 		Updates the config object for an existing updater.
@@ -166,21 +168,27 @@ function AutoUpdater($interval, $timeout, $q, $rootScope, $log) {
 	this.startUpdater = function(updaterName) {
 		$log.debug("AutoUpdater: startUpdater: ", updaterName);
 
-		if(registeredUpdaters[updaterName]) {
+		if(registeredUpdaters[updaterName] && !registeredUpdaters[updaterName].running) {
+		  // Mark updater as running.
+		  registeredUpdaters[updaterName].running = true;
+		  
 			// If the interval for this updater exists, do nothing, if not, run it
 			if(!registeredUpdaters[updaterName].interval) {
 				// Check for the waitForMe promise before running the update
 				if(registeredUpdaters[updaterName].config.waitForMe) {
 					$q.when(registeredUpdaters[updaterName].config.waitForMe).then(function() {
-						that.updater(updaterName);
+						that.update(updaterName);
 					});
 				}
 				else {
-					that.updater(updaterName);
+					that.update(updaterName);
 				}
 			}
 
 			return true;
+		}
+		else if(registeredUpdaters[updaterName] && registeredUpdaters[updaterName].running) {
+		  return true;
 		}
 		else {
 			return false;
@@ -188,8 +196,9 @@ function AutoUpdater($interval, $timeout, $q, $rootScope, $log) {
 	};
 
 	/*
-		If an $interval has not been created for this updater, create one.
-		This can be called to force an update right now with the forceUpdate flag.
+		Starts an update for an existing updater.
+		If you want to force an update right now, set the forceUpdate flag to be truthy.
+		This will do nothing on an updater with an existing static refresh timer.
 	*/
 	this.update = function(updaterName, forceUpdate) {
 		$log.debug("AutoUpdater: update: ", updaterName, forceUpdate);
@@ -199,18 +208,14 @@ function AutoUpdater($interval, $timeout, $q, $rootScope, $log) {
 			// Allows for this.update to force an update right now
 			if(forceUpdate) {
 				if(registeredUpdaters[updaterName].interval) {
-					// Cancel the interval
-					that.stopUpdater(updaterName);
-					// Restart the updater.  This will make the call immediately.
-					_createUpdater(updaterName);
+					cancelInterval(updaterName);
+					
 					// Run an update now.
 					_update(updaterName);
 				}
 			}
-
 			// Create the updater if it does not exist and run it
-			if(!registeredUpdaters[updaterName].interval) {
-				_createUpdater(updaterName);
+			else if(!registeredUpdaters[updaterName].interval) {
 				_update(updaterName);
 			}
 		}
@@ -221,77 +226,112 @@ function AutoUpdater($interval, $timeout, $q, $rootScope, $log) {
 	};
 
 	/*
-		Create the $interval that causes automatic updates to happen
+		Create an $interval that causes automatic updates.
+		This does nothing if the inverval is already set on a static refresh.
+		If refreshTimer is set:
+		  Uses a single-use $interval.  $timeout is not used because it blocks protractor tests.
+		If refreshTimer is NOT set:
+		  Uses a repeating $interval.
 	*/
-	function _createUpdater(updaterName) {
-		$log.debug("AutoUpdater: _createUpdater: ", updaterName);
-
-		if(registeredUpdaters[updaterName].config.refreshTimer) {
-			registeredUpdaters[updaterName].interval = $interval(function() {
-				_update(updaterName);
-			}, registeredUpdaters[updaterName].config.refreshTimer);
+	function _createInterval(updaterName) {
+		if(registeredUpdaters[updaterName].config.refreshTimer !== null) {
+		  $log.debug("AutoUpdater: _createInterval: ", updaterName, registeredUpdaters[updaterName]);
+		  
+		  if(registeredUpdaters[updaterName].config.dynamicRefresh) {
+		    registeredUpdaters[updaterName].interval = $interval(function() {
+		      _update(updaterName);
+		    }, registeredUpdaters[updaterName].config.refreshTimer, 1);
+		  }
+		  else if(!registeredUpdaters[updaterName].interval) {
+		    registeredUpdaters[updaterName].interval = $interval(function() {
+		      _update(updaterName);
+		    }, registeredUpdaters[updaterName].config.refreshTimer);
+		  }
 		}
 	}
 
 	/*
 		Runs the updater using function.apply.
+		If using dynamicRefresh, this adds the next single-use interval.
 	*/
 	function _update(updaterName) {
-		// This is wrapped in $q.when in case the function is not a promise, to support static values
-		return $q.when(registeredUpdaters[updaterName].updater.apply(that, registeredUpdaters[updaterName].config.functionParams)).then(function(response) {
-			// http success case
-			$log.debug("AutoUpdater: update success: ", updaterName, response);
-
-			// Use existence checks for all updater references bycause the call is asynchronous
-			// The updater may have been deregistered in the meantime, which would cause an error
-			if(registeredUpdaters[updaterName]) {
-				registeredUpdaters[updaterName].failures = 0; // reset consecutive failure counter
-			}
-
-			// If set to broadcast updates, do so
-			if(registeredUpdaters[updaterName].config.broadcastEvent) {
-				$rootScope.$broadcast(registeredUpdaters[updaterName].config.broadcastEvent);
-			}
-
-			// Apply the update
-			if(response !== null && !angular.isUndefined(response)) {
-				// This timeout gives a smoother application of the text
-				// Without, the reaction lag of a font-awesome spinner is very noticable
-				$timeout(function() {
-					if(registeredUpdaters[updaterName]) {
-						registeredUpdaters[updaterName].value = response;
-						registeredUpdaters[updaterName].title = '';
-					}
-				});
-			}
-		}, function(error) {
-			// http error case
-			$log.debug("AutoUpdater: update failed: ", updaterName, error);
-
-			if(registeredUpdaters[updaterName]) {
-				// Increment consecutive failure counter to avoid failing forever
-				registeredUpdaters[updaterName].failures++;
-
-				if(registeredUpdaters[updaterName].config.maxFailures !== registeredUpdaters[updaterName].config.maxFailuresMagicNumber && 
-					registeredUpdaters[updaterName].failures >= registeredUpdaters[updaterName].config.maxFailures) {
-					// Officially give up after x times
-					that.failUpdater(updaterName);
-				}
-			}
-		});
+	  $log.debug("AutoUpdater: _update: ", updaterName, registeredUpdaters[updaterName]);
+	  
+	  if(registeredUpdaters[updaterName] && registeredUpdaters[updaterName].running) {
+	    // This is wrapped in $q.when in case the function is not a promise, to support static values
+  		return $q.when(registeredUpdaters[updaterName].updater.apply(that, registeredUpdaters[updaterName].config.functionParams)).then(function(response) {
+  			// http success case
+  			$log.debug("AutoUpdater: update success: ", updaterName, response);
+  
+  			// Use existence checks for all updater references bycause the call is asynchronous
+  			// The updater may have been deregistered in the meantime, which would cause an error
+  			if(registeredUpdaters[updaterName]) {
+  				registeredUpdaters[updaterName].failures = 0; // reset consecutive failure counter
+  				
+  				// If set to broadcast updates, do so
+    			if(registeredUpdaters[updaterName].config.broadcastEvent) {
+    				$rootScope.$broadcast(registeredUpdaters[updaterName].config.broadcastEvent);
+    			}
+  			}
+  
+  			// Apply the update
+  			if(response !== null && !angular.isUndefined(response)) {
+  				// This timeout gives a smoother application of the text
+  				// Without, the reaction lag of a font-awesome spinner is very noticable
+  				$timeout(function() {
+  					if(registeredUpdaters[updaterName]) {
+  						registeredUpdaters[updaterName].value = response;
+  						registeredUpdaters[updaterName].title = '';
+  					}
+  				});
+  			}
+  		}, function(error) {
+  			// http error case
+  			$log.debug("AutoUpdater: update failed: ", updaterName, error);
+  
+  			if(registeredUpdaters[updaterName]) {
+  				// Increment consecutive failure counter to avoid failing forever
+  				registeredUpdaters[updaterName].failures++;
+  
+  				if(registeredUpdaters[updaterName].config.maxFailures !== registeredUpdaters[updaterName].config.maxFailuresMagicNumber && 
+  					registeredUpdaters[updaterName].failures >= registeredUpdaters[updaterName].config.maxFailures) {
+  					// Officially give up after x times
+  					that.failUpdater(updaterName);
+  				}
+  			}
+  		}).finally(function() {
+  		  // Create a new single-use interval if the updater is still running.
+  		  if(registeredUpdaters[updaterName] && registeredUpdaters[updaterName].running) {
+  		    _createInterval(updaterName);
+  		  }
+  		});
+	  }
+	}
+	
+	/*
+	  Cancel an updater's interval.
+	*/
+	function cancelInterval(updaterName) {
+    if(registeredUpdaters[updaterName].interval) {
+      $interval.cancel(registeredUpdaters[updaterName].interval);
+    }
 	}
 
 	/*
 		Stops an updater from running by cancelling its interval.
-		Returns true if the updater was found and was running, false if not.
+		Marks it as no longer running.
+		Returns true if the updater was found, false if not.
 	*/
 	this.stopUpdater = function(updaterName) {
 		$log.debug("AutoUpdater: stopUpdater: ", updaterName);
 
-		if(registeredUpdaters[updaterName] &&
-			registeredUpdaters[updaterName].interval !== null) {
+		if(registeredUpdaters[updaterName]) {
+		  
+		  // Mark the updater as not running.
+		  registeredUpdaters[updaterName].running = false;
 
-			$interval.cancel(registeredUpdaters[updaterName].interval);
+      cancelInterval(updaterName);
+      
 			return true;
 		}
 		else {
@@ -341,22 +381,6 @@ function AutoUpdater($interval, $timeout, $q, $rootScope, $log) {
 	};
 }
 
-/*
-	Base auto-updating-directive.
-	Use this by calling <auto-updating-directive> in your directive's template.
-	See the test directive below for a concrete, working example.
-
-	You provide this directive with three things:
-	1) updaterFunction (required): A function that returns a value or promise.
-		If you use a promise, if must resolve to the data you want to display.
-		Note: uses '=' binding, so pass myFunction, not myFunction().
-	2) updaterName (optional): A unique name for the updater.
-		If not provided, uses the service defaults.
-		If a duplicate is entered, subsequent updaters may not behave correctly.
-	3) updaterConfig (optional): A config object for the updater.
-		If not provided, uses the service defaults.
-	All three are described in more detail in the AutoUpdater Service above.
-*/
 angular.module('cpc.autoupdater').directive('autoUpdatingDirective', autoUpdatingDirective);
 autoUpdatingDirective.$inject = ['AutoUpdater'];
 function autoUpdatingDirective(AutoUpdater) {
@@ -393,16 +417,6 @@ function autoUpdatingDirective(AutoUpdater) {
 	};
 }
 
-/*
-	A test demonstration of the AutoUpdater Service and parent directive
-	1) Define a directive for your updater.
-	2) Use auto-updating-directive in your directive template where you want your data to go.
-	3) Pass in any functions and variables you need to the directive.
-
-	Usage Examples: 
-		<auto-updater-test></auto-updater-test>
-		<auto-updater-test updater-name="My Test Updater"></auto-updater-test>
-*/
 angular.module('cpc.autoupdater').directive('autoUpdaterTest', autoUpdaterTest);
 autoUpdaterTest.$inject = ['$http'];
 function autoUpdaterTest($http) {
@@ -425,17 +439,11 @@ function autoUpdaterTest($http) {
 				});
 			};
 
-			// The function that will be run by the auto-updating-directive
-			// 
 			$scope.passedFunction = test2;
-
-			// Parameters for the updater.
-			// If you want to change how the updater works, use the config object.
-			// If you need to pass parameters to your updaterFunction, define them here on config.functionParams.
-			// If you don't need this, it's ok to not define it.
+			
 			$scope.config = {
 				functionParams: []
 			};
 		}
 	};
-};
+}
