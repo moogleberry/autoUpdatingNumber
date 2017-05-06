@@ -1,6 +1,18 @@
 # Auto Updater
 Angular 1.x manager service for all things that have to automatically update with REST calls.
 
+If you want to make calls to a REST endpoint repeatedly, automatically, you want this.  
+
+This service and directive combo gives you a great degree of control over how your updates happen.
+* Want to start and stop updaters programmatically?  Can Do.
+* Want the flexibility to specify a name, or not?  Can Do.
+* Want updaters that will never overwhelm your server because they start their timer after the call completes?  Can Do.
+* Want the timer to start when the call starts?  Also Can Do.
+* Want to wait for an independent promise before running?  Can Do.
+* Want to trigger updates on, or broadcast events? Can Do.
+* Want to stop trying after too many failures?  Can Do.
+* Want to keep trying forever?  Also Can Do.
+
 In Action: https://plnkr.co/edit/mip8cC?p=preview
 
 ## Dependencies
@@ -27,6 +39,38 @@ In Action: https://plnkr.co/edit/mip8cC?p=preview
 3) updaterConfig (optional):
 * A configuration object for the updater. 
 * If you need to pass variabled into your updaterFunction, put them in the updaterConfig.functionParams array.
+
+## How to make my own updater directive
+angular.module('cpc.autoupdater').directive('autoUpdaterTest', autoUpdaterTest);
+autoUpdaterTest.$inject = ['$http'];
+function autoUpdaterTest($http) {
+	return {
+		scope: {
+			updaterName: '@'
+		},
+		restrict: 'E',
+		template: '<auto-updating-directive updater-name="updaterName" updater-function="passedFunction" updater-config="config"></auto-updating-directive>',
+		controller: function($scope) {
+			// A test function to demonstrate getting and updating plain data
+			var test = function() {
+				return Math.floor(Math.random() * 100);
+			};
+
+			// A second test function to demonstrate getting and updating data from a promise
+			var test2 = function() {
+				return $http.get('').then(function() {
+					return Math.floor(Math.random() * 100);
+				});
+			};
+
+			$scope.passedFunction = test2;
+			
+			$scope.config = {
+				functionParams: []
+			};
+		}
+	};
+}
 
 ## Configuring an updater
 refreshTimer: 10000, // The time to wait between calls, in milliseconds.
