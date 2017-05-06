@@ -41,6 +41,7 @@ In Action: https://plnkr.co/edit/mip8cC?p=preview
 * If you need to pass variabled into your updaterFunction, put them in the updaterConfig.functionParams array.
 
 ## How to make my own updater directive
+```
 angular.module('cpc.autoupdater').directive('autoUpdaterTest', autoUpdaterTest);
 autoUpdaterTest.$inject = ['$http'];
 function autoUpdaterTest($http) {
@@ -71,6 +72,7 @@ function autoUpdaterTest($http) {
 		}
 	};
 }
+```
 
 ## Configuring an updater
 refreshTimer: 10000, // The time to wait between calls, in milliseconds.
